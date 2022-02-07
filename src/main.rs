@@ -18,6 +18,15 @@ struct TableauData {
     m: usize,
     n: usize,
     solve_algorithm: String,
+    variable_select_type: String,
+    error: bool,
+    error_message: String,
+    reduced_cost_numerators: Vec<i64>,
+    reduced_cost_denominators: Vec<i64>,
+    basis_indecies: Vec<usize>,
+    obj_numerator: i64,
+    obj_denominator: i64,
+    solved: bool,
 }
 
 #[derive(Debug)]
@@ -31,9 +40,52 @@ struct Tableau {
     basis_indecies: Vec<usize>,
     reduced_cost: Vec<Ratio<i64>>,
     has_artificial_vars: bool,
+    variable_select_type: String,
     solve_algorithm: String,
+    solved: bool,
     error: bool, 
     error_message: String,
+    entering_var_index: Option<usize>,
+    leaving_var_index: Option<usize>,
+}
+
+impl TableauData {
+    fn new(t: Tableau) -> TableauData {
+        let (a_num, a_den): (Vec<Vec<i64>>, Vec<Vec<i64>>) = t.A.into_iter()
+                                                                .map(|row| row.into_iter()
+                                                                              .map(|el| (*el.numer(), *el.denom()))
+                                                                              .unzip())
+                                                                .unzip();
+        let (b_num, b_den): (Vec<i64>, Vec<i64>) = t.b.into_iter()
+                                                      .map(|el| (*el.numer(), *el.denom()))
+                                                      .unzip();
+        let (c_num, c_den): (Vec<i64>, Vec<i64>) = t.c.into_iter()
+                                                      .map(|el| (*el.numer(), *el.denom()))
+                                                      .unzip();
+        let (reduced_cost_num, reduced_cost_den): (Vec<i64>, Vec<i64>) = t.reduced_cost.into_iter()
+                                                                                      .map(|el| (*el.numer(), *el.denom()))
+                                                                                      .unzip();
+        TableauData {
+            A_numerators: a_num,
+            A_denominators: a_den,
+            b_numerators: b_num,
+            b_denominators: b_den,
+            c_numerators: c_num,
+            c_denominators: c_den,
+            m: t.m,
+            n: t.n,
+            solve_algorithm: t.solve_algorithm,
+            variable_select_type: t.variable_select_type,
+            error: t.error,
+            error_message: t.error_message,
+            reduced_cost_numerators: reduced_cost_num,
+            reduced_cost_denominators: reduced_cost_den,
+            obj_numerator: *t.obj.numer(),
+            obj_denominator: *t.obj.denom(),
+            basis_indecies: t.basis_indecies,
+            solved: t.solved,
+        }
+    }
 }
 
 impl Tableau {
@@ -65,9 +117,13 @@ impl Tableau {
             basis_indecies: vec![t.m;t.m],
             reduced_cost: Vec::with_capacity(t.n),
             has_artificial_vars: false,
+            variable_select_type: t.variable_select_type,
             solve_algorithm: t.solve_algorithm,
+            solved: false,
             error: false,
             error_message: String::from(""),
+            entering_var_index: None,
+            leaving_var_index: None,
         }
     }
 
@@ -122,29 +178,137 @@ impl Tableau {
         }
     }
 
-    fn select_entering_var(&self) -> usize {
-        0
+    fn select_entering_var(&mut self) {
+        match self.variable_select_type.as_str() {
+            "standard" => {
+                match self.solve_algorithm.as_str() {
+                    "standard" => {
+                        let min_value = self.reduced_cost.iter().min();
+                        match min_value {
+                            Some(min_v) if min_v < &Ratio::from_integer(0i64) => {
+                                let min_index = self.reduced_cost.iter()
+                                                                 .position(|value| value == min_v)
+                                                                 .unwrap();
+                                self.entering_var_index = Some(min_index);
+                                ()
+                            },
+                            Some(_) => {
+                                self.solved = true;
+                                self.entering_var_index = None;
+                                ()
+                            }
+                            None => {
+                                self.error = true;
+                                self.error_message = String::from("Reduced cost vector is empty. ");
+                                if self.n != 0 {
+                                    self.error_message.push_str("Reduced cost vector is not the same dimensions as our coefficient matrix.");
+                                } else {
+                                    self.error_message.push_str("Coefficient matrix is empty. Cannot solve an empty coefficient matrix.");
+                                }
+                                self.entering_var_index = None;
+                                ()
+                            }
+                        }
+                    }, 
+                    "dual" => {
+                        self.entering_var_index = Some(self.n);
+                        ()
+                    },
+                    _ => {
+                        self.error = true;
+                        self.error_message = String::from("Invalid type for solve algorithm selection");
+                        self.entering_var_index = None;
+                        ()
+                    }
+                }
+            },
+            "bland" => {
+                self.entering_var_index = Some(self.n);
+                ()
+            },
+            _ => {
+                self.error = true;
+                self.error_message = String::from("Invalid type for variable selection method");
+                self.entering_var_index = None;
+                ()
+            }
+        }
     }
 
-    fn select_leaving_var(&self) -> usize {
-        0
+    fn select_leaving_var(&mut self) {
+        match self.variable_select_type.as_str() {
+            "standard" => {
+                match self.solve_algorithm.as_str() {
+                    "standard" => {
+                        if self.m <= 0 {
+                            self.error = true;
+                            self.error_message = String::from("Coefficient matrix is empty. Cannot solve an empty coefficient matrix.");
+                            self.leaving_var_index = None;
+                            ()
+                        }
+                        let entering_index = match self.entering_var_index {
+                            None => {
+                                self.error = true;
+                                self.error_message = String::from("Something seems to have gone wrong. Standard solve requires to select an entering variable before a leaving variable can be selected.");
+                                self.leaving_var_index = None;
+                                return;
+                            },
+                            Some(index) => index
+                        };
+                        let ratios: Vec<Ratio<i64>> = self.A[entering_index].iter()
+                                                           .zip(self.b.iter())
+                                                           .map(|(&a, &b)| b/a)
+                                                           .collect();
+                        let min_ratio = ratios.iter()
+                                              .filter(|&&el| el > Ratio::from_integer(0i64))
+                                              .min()
+                                              .unwrap();
+                        let min_index = ratios.iter()
+                                              .position(|el| el == min_ratio)
+                                              .unwrap();
+                        self.leaving_var_index = Some(min_index);
+                        ()
+                    },
+                    "dual" => {
+                        self.leaving_var_index = None;
+                        ()
+                    },
+                    _ => {
+                        self.error = true;
+                        self.error_message = String::from("Invalid type for solve algorithm selection");
+                        self.leaving_var_index = None;
+                        ()
+                    }
+                }
+            },
+            "bland" => {
+                self.leaving_var_index = Some(self.n);
+                ()
+            },
+            _ => {
+                self.error = true;
+                self.error_message = String::from("Invalid type for variable selection method");
+                self.leaving_var_index = None;
+                ()
+            }
+        }
     }
 
-    fn pivot(&mut self, entering: usize, leaving: usize) {
+    fn pivot(&mut self) {
 
     }
 
     fn iterate(&mut self) {
         match self.solve_algorithm.as_str() {
             "standard" => {
-                let leaving_var = self.select_leaving_var();
-                let entering_var = self.select_entering_var();
-                self.pivot(entering_var, leaving_var);
+                self.select_entering_var(); 
+                self.select_leaving_var(); 
+                self.pivot();
             },
             "dual" => {
-                let entering_var = self.select_entering_var();
-                let leaving_var = self.select_leaving_var();
-                self.pivot(entering_var, leaving_var);
+                self.select_leaving_var(); 
+                self.select_entering_var(); 
+                self.pivot();
             },
             _ => { 
                 self.error = true;
@@ -184,13 +348,16 @@ impl Tableau {
 
 
 #[post("/setup", format = "json", data = "<tableau>")]
-fn setup(tableau: Json<TableauData>) -> String {
+fn setup(tableau: Json<TableauData>) -> Json<TableauData> {
     let mut t = Tableau::new(tableau.0);
     t.find_basis_matrix();
     t.calc_reduced_cost();
+    t.select_entering_var();
+    t.select_leaving_var();
     t.print_table();
+    println!("Entering variable index: {}\nLeaving variable index: {}", t.entering_var_index.unwrap(), t.leaving_var_index.unwrap());
     let basis_indecies = t.get_basis();
-    format!("Basis indecies: [{}, {}, {}]\n", basis_indecies.0, basis_indecies.1, basis_indecies.2)
+    Json(TableauData::new(t))
 }
 
 fn main() {
