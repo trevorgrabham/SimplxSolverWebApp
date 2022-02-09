@@ -7,6 +7,12 @@ use num::rational::Ratio;
 use rocket_contrib::json::Json;
 use serde::{Serialize, Deserialize};
 
+#[derive(Eq, Debug, Clone)]
+struct M {
+    M: Ratio<i64>,
+    constant: Ratio<i64>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct TableauData {
     A_numerators: Vec<Vec<i64>>,
@@ -15,6 +21,8 @@ struct TableauData {
     b_denominators: Vec<i64>,
     c_numerators: Vec<i64>,
     c_denominators: Vec<i64>,
+    c_m_numerators: Vec<i64>,
+    c_m_denominators: Vec<i64>,
     m: usize,
     n: usize,
     solve_algorithm: String,
@@ -23,9 +31,13 @@ struct TableauData {
     error_message: String,
     reduced_cost_numerators: Vec<i64>,
     reduced_cost_denominators: Vec<i64>,
+    reduced_cost_m_numerators: Vec<i64>,
+    reduced_cost_m_denominators: Vec<i64>,
     basis_indecies: Vec<usize>,
     obj_numerator: i64,
     obj_denominator: i64,
+    obj_m_numerator: i64,
+    obj_m_denominator: i64,
     solved: bool,
     solution_numerators: Vec<i64>,
     solution_denominators: Vec<i64>,
@@ -36,12 +48,12 @@ struct Tableau {
     DEBUG: bool,
     A: Vec<Vec<Ratio<i64>>>,
     b: Vec<Ratio<i64>>,
-    c: Vec<Ratio<i64>>,
+    c: Vec<M>,
     m: usize,
     n: usize,
-    obj: Ratio<i64>,
+    obj: M,
     basis_indecies: Vec<usize>,
-    reduced_cost: Vec<Ratio<i64>>,
+    reduced_cost: Vec<M>,
     has_artificial_vars: bool,
     variable_select_type: String,
     solve_algorithm: String,
@@ -51,6 +63,151 @@ struct Tableau {
     entering_var_index: Option<usize>,
     leaving_var_index: Option<usize>,
     solution: Vec<Ratio<i64>>,
+}
+
+impl M {
+    fn new(m: Ratio<i64>, constant: Ratio<i64>) -> M {
+        M {
+            M: m,
+            constant: constant,
+        }
+    }
+}
+
+impl std::ops::Mul<M> for Ratio<i64> {
+    type Output = M;
+
+    fn mul(self, rhs: M) -> M {
+        M {
+            M: rhs.M * self,
+            constant: rhs.constant * self,
+        }
+    }
+}
+
+impl std::ops::Mul<&M> for Ratio<i64> {
+    type Output = M;
+
+    fn mul(self, rhs: &M) -> M {
+        M {
+            M: rhs.M * self,
+            constant: rhs.constant * self,
+        }
+    }
+}
+
+impl std::ops::Add for M {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self { 
+        M {
+            M: self.M + rhs.M,
+            constant: self.constant + rhs.constant,
+        }
+    }
+}
+
+impl std::ops::Sub for M {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self {
+        M {
+            M: self.M - rhs.M,
+            constant: self.constant - rhs.constant,
+        }
+    }
+}
+
+impl<'a> std::iter::Sum<Self> for M {
+    fn sum<I>(iter: I) -> Self 
+    where
+        I: Iterator<Item = Self>,
+        {
+            iter.fold(Self { M: Ratio::from_integer(0i64), constant: Ratio::from_integer(0i64), }, |a ,b| Self { M: a.M + b.M, constant: a.constant + b.constant, })
+        }
+}
+
+impl std::ops::Div<Ratio<i64>> for M {
+    type Output = Self;
+
+    fn div(self, rhs: Ratio<i64>) -> Self {
+        M {
+            M: self.M / rhs,
+            constant: self.constant / rhs,
+        }
+    }
+}
+
+impl std::ops::AddAssign for M {
+    fn add_assign(&mut self, rhs: Self) {
+        self.M += rhs.M;
+        self.constant += rhs.constant;
+    }
+}
+
+impl std::ops::SubAssign<&M> for M {
+    fn sub_assign(&mut self, rhs: &Self) {
+        self.M -= rhs.M;
+        self.constant -= rhs.constant;
+    }
+}
+
+impl PartialOrd for M {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.M.partial_cmp(&other.M) {
+            Some(std::cmp::Ordering::Equal) => { 
+                self.constant.partial_cmp(&other.constant)
+            },
+            Some(ord) => {
+                Some(ord)
+            }
+            None => {
+                None
+            }
+        }
+    }
+}
+
+impl Ord for M {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self.M.cmp(&other.M) {
+            std::cmp::Ordering::Equal => {
+                self.constant.cmp(&other.constant)
+            },
+            ord => {
+                ord
+            }
+        }
+    }
+}
+
+impl PartialEq for M {
+    fn eq(&self, other: &Self) -> bool {
+        self.M == other.M && self.constant == other.constant
+    }
+}
+
+impl std::fmt::Display for M {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self.M == Ratio::from_integer(0i64) {
+            true => {
+                write!(f, "{}", self.constant)
+            }, 
+            false => {
+                match self.constant {
+                    c if c > Ratio::from_integer(0i64) => {
+                        write!(f, "{}M+{}", self.M, self.constant)
+                    },
+                    c if c < Ratio::from_integer(0i64) => {
+                        write!(f, "{}M{}", self.M, self.constant)
+                    },
+                    _ => {
+                        write!(f, "{}M", self.M)
+                    },
+                }
+            },
+        }
+    }
 }
 
 impl TableauData {
@@ -63,12 +220,12 @@ impl TableauData {
         let (b_num, b_den): (Vec<i64>, Vec<i64>) = t.b.into_iter()
                                                       .map(|el| (*el.numer(), *el.denom()))
                                                       .unzip();
-        let (c_num, c_den): (Vec<i64>, Vec<i64>) = t.c.into_iter()
-                                                      .map(|el| (*el.numer(), *el.denom()))
+        let ((c_num, c_den), (c_m_num, c_m_den)): ((Vec<i64>, Vec<i64>),(Vec<i64>, Vec<i64>)) = t.c.into_iter()
+                                                      .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
                                                       .unzip();
-        let (reduced_cost_num, reduced_cost_den): (Vec<i64>, Vec<i64>) = t.reduced_cost.into_iter()
-                                                                                      .map(|el| (*el.numer(), *el.denom()))
-                                                                                      .unzip();
+        let ((reduced_cost_num, reduced_cost_den), (reduced_cost_m_num, reduced_cost_m_den)): ((Vec<i64>, Vec<i64>), (Vec<i64>, Vec<i64>)) = t.reduced_cost.into_iter()
+                                                                                                                               .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
+                                                                                                                               .unzip();
         let (sol_num, sol_den): (Vec<i64>, Vec<i64>) = t.solution.into_iter()
                                                                  .map(|el| (*el.numer(), *el.denom()))
                                                                  .unzip();
@@ -79,6 +236,8 @@ impl TableauData {
             b_denominators: b_den,
             c_numerators: c_num,
             c_denominators: c_den,
+            c_m_numerators: c_m_num,
+            c_m_denominators: c_m_den,
             m: t.m,
             n: t.n,
             solve_algorithm: t.solve_algorithm,
@@ -87,8 +246,12 @@ impl TableauData {
             error_message: t.error_message,
             reduced_cost_numerators: reduced_cost_num,
             reduced_cost_denominators: reduced_cost_den,
-            obj_numerator: *t.obj.numer(),
-            obj_denominator: *t.obj.denom(),
+            reduced_cost_m_numerators: reduced_cost_m_num,
+            reduced_cost_m_denominators: reduced_cost_m_den,
+            obj_numerator: *t.obj.constant.numer(),
+            obj_denominator: *t.obj.constant.denom(),
+            obj_m_numerator: *t.obj.M.numer(),
+            obj_m_denominator: *t.obj.M.denom(),
             basis_indecies: t.basis_indecies,
             solved: t.solved,
             solution_numerators: sol_num,
@@ -111,10 +274,11 @@ impl Tableau {
                               .zip(t.b_denominators.into_iter())
                               .map(|(num, den)| Ratio::new(num, den))
                               .collect();
-        let c: Vec<Ratio<i64>> = t.c_numerators.into_iter()
-                                               .zip(t.c_denominators.into_iter())
-                                               .map(|(num, den)| Ratio::new(num, den))
-                                               .collect();
+        let c: Vec<M> = t.c_numerators.into_iter()
+                                      .zip(t.c_denominators.into_iter())
+                                      .zip(t.c_m_numerators.into_iter().zip(t.c_m_denominators.into_iter()))
+                                      .map(|((const_num, const_den), (m_num, m_den))| M::new(Ratio::new(m_num, m_den), Ratio::new(const_num, const_den)))
+                                      .collect();
         Tableau {
             DEBUG: true,
             A: a,
@@ -122,7 +286,7 @@ impl Tableau {
             c: c,
             m: t.m,
             n: t.n,
-            obj: Ratio::from_integer(-1),
+            obj: M::new(Ratio::from_integer(0i64), Ratio::from_integer(-1i64)),
             basis_indecies: vec![t.m;t.m],
             reduced_cost: Vec::with_capacity(t.n),
             has_artificial_vars: false,
@@ -147,7 +311,7 @@ impl Tableau {
             m: 0,
             n: 0,
             reduced_cost: Vec::with_capacity(0),
-            obj: Ratio::from_integer(-1),
+            obj: M::new(Ratio::from_integer(0i64), Ratio::from_integer(-164)),
             basis_indecies: Vec::with_capacity(0),
             has_artificial_vars: false,
             variable_select_type: String::from(""),
@@ -181,7 +345,7 @@ impl Tableau {
                         row.push(Ratio::new(0i64,1));
                     }
                     self.A[i][self.n] = Ratio::new(1i64,1);
-                    self.c.push(Ratio::from_integer(i64::MIN));
+                    self.c.push(M::new(Ratio::from_integer(-1i64), Ratio::from_integer(0)));
                     self.basis_indecies[i] = self.n;
                     self.n += 1;
                     self.has_artificial_vars = true;
@@ -193,23 +357,31 @@ impl Tableau {
 
     fn calc_reduced_cost(&mut self) {
         match self.has_artificial_vars {
-            false => {
-                let basis_cost:Vec<Ratio<i64>> = self.basis_indecies.iter()
-                                                                    .map(|&index| self.c[index])
+            false | true => {
+                let basis_cost:Vec<&M> = self.basis_indecies.iter()
+                                                                    .map(|&index| &self.c[index])
                                                                     .collect();
+                if self.DEBUG {
+                    print!("basis_cost: [");
+                    for el in &basis_cost {
+                        print!("{}, ", el);
+                    }
+                    print!("]\n");
+                }
                 for col in 0..self.n {
-                    self.reduced_cost.push(Ratio::new(0i64, 1));
+                    self.reduced_cost.push(M::new(Ratio::new(0i64, 1), Ratio::new(0i64, 1)));
                     for row in 0..self.m {
                         self.reduced_cost[col] += self.A[row][col] * basis_cost[row];
                     }
-                    self.reduced_cost[col] -= self.c[col];
+                    self.reduced_cost[col] -= &self.c[col];
                 }
-                self.obj = basis_cost.iter()
-                                    .zip(self.b.iter())
-                                    .map(|(c, b)| c*b)
+                self.obj = basis_cost.iter().cloned()
+                                    .zip(self.b.iter().cloned())
+                                    .map(|(c, b)| b*c )
                                     .sum();
             }, 
-            true => {
+            _ => {
+            // true => {
             }
         }
     }
@@ -222,7 +394,7 @@ impl Tableau {
                         let min_value = self.reduced_cost.iter().min();
                         // match on 3 cases: we have a negative value for our min reduced cost, we have a positive value for our min reduced cost, or we have an empty reduced cost 
                         match min_value {
-                            Some(min_v) if min_v < &Ratio::from_integer(0i64) => {
+                            Some(min_v) if min_v < &M::new(Ratio::from_integer(0i64), Ratio::from_integer(0i64)) => {
                                 let min_index = self.reduced_cost.iter()
                                                                  .position(|value| value == min_v)
                                                                  .unwrap();
@@ -354,16 +526,16 @@ impl Tableau {
                                                                                         .map(|(row_el, &leaving_el)| if row == leaving_row { row_el / entering_el } else { row_el - leaving_el * entering_el / self.A[leaving_index][entering_index]})
                                                                                         .collect::<Vec<Ratio<i64>>>())
                                                         .collect();
-                let new_reduced_cost: Vec<Ratio<i64>> = self.reduced_cost.iter()
+                let new_reduced_cost: Vec<M> = self.reduced_cost.iter().cloned()
                                                                          .zip(leaving_row.iter())
-                                                                         .map(|(reduced_el, &leaving_el)| reduced_el - leaving_el * self.reduced_cost[entering_index] / self.A[leaving_index][entering_index])
+                                                                         .map(|(reduced_el, &leaving_el)| reduced_el - leaving_el * &self.reduced_cost[entering_index] / self.A[leaving_index][entering_index])
                                                                          .collect();
                 let new_b: Vec<Ratio<i64>> = self.b.iter()
                                                    .zip(entering_col.iter())
                                                    .zip(0..self.m)
                                                    .map(|((b_el, entering_el), index)| if index == leaving_index { b_el / self.A[leaving_index][entering_index] } else { b_el - entering_el * self.b[leaving_index] / self.A[leaving_index][entering_index] })
                                                    .collect();
-                self.obj -= self.b[leaving_index] * self.reduced_cost[entering_index] / self.A[leaving_index][entering_index];
+                self.obj -= &(self.b[leaving_index] * &self.reduced_cost[entering_index] / self.A[leaving_index][entering_index]);
                 self.A = new_a;
                 self.reduced_cost = new_reduced_cost;
                 self.b = new_b;
@@ -441,11 +613,7 @@ impl Tableau {
         } 
         print!("\n[\t");
         for col in 0..self.n {
-            if self.reduced_cost[col] == Ratio::from_integer(i64::MIN) {
-                print!("-M\t");
-            } else {
-                print!("{}\t", self.reduced_cost[col]);
-            }
+            print!("{}\t", self.reduced_cost[col]);
         }
         print!("|\t{}\t", self.obj);
         println!("]\n");
