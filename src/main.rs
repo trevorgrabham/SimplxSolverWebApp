@@ -27,6 +27,7 @@ struct TableauData {
     n: usize,
     solve_algorithm: String,
     variable_select_type: String,
+    big_M_solve_algorithm: String,
     error: bool,
     error_message: String,
     reduced_cost_numerators: Vec<i64>,
@@ -54,9 +55,11 @@ struct Tableau {
     obj: M,
     basis_indecies: Vec<usize>,
     reduced_cost: Vec<M>,
+    two_phase_reduced_cost: Vec<M>,
     has_artificial_vars: bool,
     variable_select_type: String,
     solve_algorithm: String,
+    big_M_solve_algorithm: String,
     solved: bool,
     error: bool, 
     error_message: String,
@@ -242,6 +245,7 @@ impl TableauData {
             n: t.n,
             solve_algorithm: t.solve_algorithm,
             variable_select_type: t.variable_select_type,
+            big_M_solve_algorithm: t.big_M_solve_algorithm,
             error: t.error,
             error_message: t.error_message,
             reduced_cost_numerators: reduced_cost_num,
@@ -289,9 +293,11 @@ impl Tableau {
             obj: M::new(Ratio::from_integer(0i64), Ratio::from_integer(-1i64)),
             basis_indecies: vec![t.m;t.m],
             reduced_cost: Vec::with_capacity(t.n),
+            two_phase_reduced_cost: vec![M::new(Ratio::from_integer(0i64), Ratio::from_integer(0i64));t.n],
             has_artificial_vars: false,
             variable_select_type: t.variable_select_type,
             solve_algorithm: t.solve_algorithm,
+            big_M_solve_algorithm: t.big_M_solve_algorithm,
             solved: false,
             error: false,
             error_message: String::from(""),
@@ -311,11 +317,13 @@ impl Tableau {
             m: 0,
             n: 0,
             reduced_cost: Vec::with_capacity(0),
+            two_phase_reduced_cost: Vec::with_capacity(0),
             obj: M::new(Ratio::from_integer(0i64), Ratio::from_integer(-164)),
             basis_indecies: Vec::with_capacity(0),
             has_artificial_vars: false,
             variable_select_type: String::from(""),
             solve_algorithm: String::from(""),
+            big_M_solve_algorithm: String::from(""),
             solved: false,
             error: t.error,
             error_message: t.error_message,
@@ -346,6 +354,9 @@ impl Tableau {
                     }
                     self.A[i][self.n] = Ratio::new(1i64,1);
                     self.c.push(M::new(Ratio::from_integer(-1i64), Ratio::from_integer(0)));
+                    if self.big_M_solve_algorithm.as_str() == "two-phase" {
+                        self.two_phase_reduced_cost.push(M::new(Ratio::from_integer(0i64), Ratio::from_integer(-1i64)));
+                    }
                     self.basis_indecies[i] = self.n;
                     self.n += 1;
                     self.has_artificial_vars = true;
@@ -356,34 +367,38 @@ impl Tableau {
     }
 
     fn calc_reduced_cost(&mut self) {
-        match self.has_artificial_vars {
-            false | true => {
-                let basis_cost:Vec<&M> = self.basis_indecies.iter()
-                                                                    .map(|&index| &self.c[index])
-                                                                    .collect();
-                if self.DEBUG {
-                    print!("basis_cost: [");
-                    for el in &basis_cost {
-                        print!("{}, ", el);
-                    }
-                    print!("]\n");
-                }
-                for col in 0..self.n {
-                    self.reduced_cost.push(M::new(Ratio::new(0i64, 1), Ratio::new(0i64, 1)));
-                    for row in 0..self.m {
-                        self.reduced_cost[col] += self.A[row][col] * basis_cost[row];
-                    }
-                    self.reduced_cost[col] -= &self.c[col];
-                }
-                self.obj = basis_cost.iter().cloned()
-                                    .zip(self.b.iter().cloned())
-                                    .map(|(c, b)| b*c )
-                                    .sum();
-            }, 
-            _ => {
-            // true => {
+        let basis_cost:Vec<&M>;
+        if self.has_artificial_vars && self.big_M_solve_algorithm.as_str() == "two-phase" {
+            basis_cost = self.basis_indecies.iter()
+                                                        .map(|&index| &self.two_phase_reduced_cost[index])
+                                                        .collect();
+        } else {
+            basis_cost = self.basis_indecies.iter()
+                                                        .map(|&index| &self.c[index])
+                                                        .collect();
+        }
+        if self.DEBUG {
+            print!("basis_cost: [");
+            for el in &basis_cost {
+                print!("{}, ", el);
+            }
+            print!("]\n");
+        }
+        for col in 0..self.n {
+            self.reduced_cost.push(M::new(Ratio::new(0i64, 1), Ratio::new(0i64, 1)));
+            for row in 0..self.m {
+                self.reduced_cost[col] += self.A[row][col] * basis_cost[row];
+            }
+            if self.has_artificial_vars && self.big_M_solve_algorithm.as_str() == "two-phase" {
+                self.reduced_cost[col] -= &self.two_phase_reduced_cost[col];
+            } else {
+                self.reduced_cost[col] -= &self.c[col];
             }
         }
+        self.obj = basis_cost.iter().cloned()
+                            .zip(self.b.iter().cloned())
+                            .map(|(c, b)| b*c )
+                            .sum();
     }
 
     fn select_entering_var(&mut self) {
@@ -432,8 +447,31 @@ impl Tableau {
                 }
             },
             "bland" => {
-                self.entering_var_index = Some(self.n);
-                ()
+                match self.solve_algorithm.as_str() {
+                    "standard" => {
+                        match self.reduced_cost.iter().position(|el| el < &M::new(Ratio::from_integer(0i64), Ratio::from_integer(0i64))) {
+                            Some(index) => {
+                                self.entering_var_index = Some(index);
+                                ()
+                            },
+                            None => {
+                                self.solved = true;
+                                self.entering_var_index = None;
+                                ()
+                            }
+                        }
+                    },
+                    "dual" => {
+                        self.entering_var_index = Some(self.n);
+                        ()
+                    },
+                    _ => {
+                        self.error = true;
+                        self.error_message = String::from("Invalid type for solve algorithm selection");
+                        self.entering_var_index = None;
+                        ()
+                    },
+                }
             },
             _ => {
                 self.error = true;
@@ -445,67 +483,53 @@ impl Tableau {
     }
 
     fn select_leaving_var(&mut self) {
-        match self.variable_select_type.as_str() {
+        match self.solve_algorithm.as_str() {
             "standard" => {
-                match self.solve_algorithm.as_str() {
-                    "standard" => {
-                        if self.m <= 0 {
-                            self.error = true;
-                            self.error_message = String::from("Coefficient matrix is empty. Cannot solve an empty coefficient matrix.");
-                            self.leaving_var_index = None;
-                            ()
-                        }
-                        let entering_index = match self.entering_var_index {
-                            None => {
-                                self.error = true;
-                                self.error_message = String::from("Something seems to have gone wrong. Standard solve requires to select an entering variable before a leaving variable can be selected.");
-                                self.leaving_var_index = None;
-                                return;
-                            },
-                            Some(index) => index
-                        };
-                        let ratios: Vec<Ratio<i64>> = self.A.iter()
-                                                            .map(|row| row[entering_index])
-                                                            .zip(self.b.iter())
-                                                            .map(|(a, b)| if a != Ratio::from_integer(0i64) { b/a } else { Ratio::new(i64::MAX, 1) })
-                                                            .collect();
-                        let min_ratio = ratios.iter()
-                                              .filter(|&&el| el >= Ratio::from_integer(0i64))
-                                              .min();
-                        let min_ratio = match min_ratio {
-                            Some(ratio) => ratio,
-                            None => {
-                                self.error = true;
-                                self.error_message = String::from("Problem is unbounded.");
-                                self.leaving_var_index = None;
-                                return;
-                            }
-                        };
-                        let min_index = ratios.iter()
-                                              .position(|el| el == min_ratio)
-                                              .unwrap();
-                        self.leaving_var_index = Some(min_index);
-                        ()
-                    },
-                    "dual" => {
-                        self.leaving_var_index = None;
-                        ()
-                    },
-                    _ => {
-                        self.error = true;
-                        self.error_message = String::from("Invalid type for solve algorithm selection");
-                        self.leaving_var_index = None;
-                        ()
-                    }
+                if self.m <= 0 {
+                    self.error = true;
+                    self.error_message = String::from("Coefficient matrix is empty. Cannot solve an empty coefficient matrix.");
+                    self.leaving_var_index = None;
+                    ()
                 }
+                let entering_index = match self.entering_var_index {
+                    None => {
+                        self.error = true;
+                        self.error_message = String::from("Something seems to have gone wrong. Standard solve requires to select an entering variable before a leaving variable can be selected.");
+                        self.leaving_var_index = None;
+                        return;
+                    },
+                    Some(index) => index
+                };
+                let ratios: Vec<Ratio<i64>> = self.A.iter()
+                                                    .map(|row| row[entering_index])
+                                                    .zip(self.b.iter())
+                                                    .map(|(a, b)| if a > Ratio::from_integer(0i64) { b/a } else { Ratio::new(i64::MAX, 1) })
+                                                    .collect();
+                let min_ratio = ratios.iter()
+                                        .filter(|&&el| el >= Ratio::from_integer(0i64))
+                                        .min();
+                let min_ratio = match min_ratio {
+                    Some(ratio) => ratio,
+                    None => {
+                        self.error = true;
+                        self.error_message = String::from("Problem is unbounded.");
+                        self.leaving_var_index = None;
+                        return;
+                    }
+                };
+                let min_index = ratios.iter()
+                                        .position(|el| el == min_ratio)
+                                        .unwrap();
+                self.leaving_var_index = Some(min_index);
+                ()
             },
-            "bland" => {
-                self.leaving_var_index = Some(self.n);
+            "dual" => {
+                self.leaving_var_index = None;
                 ()
             },
             _ => {
                 self.error = true;
-                self.error_message = String::from("Invalid type for variable selection method");
+                self.error_message = String::from("Invalid type for solve algorithm selection");
                 self.leaving_var_index = None;
                 ()
             }
@@ -637,6 +661,76 @@ fn solve(tableau: Json<TableauData>) -> Json<TableauData> {
         t.iterate();
     }
     if t.solved {
+        if t.has_artificial_vars && t.big_M_solve_algorithm.as_str() == "two-phase" {
+            if t.obj != M::new(Ratio::new(0i64,1), Ratio::new(0i64,1)) {
+                t.error = true;
+                t.error_message = String::from("Optimal basis after phase 1 still contains an artificial variable. Therefore the underlying Linear Program is infeasible.");
+                return Json(TableauData::new(Tableau::error_tableau(t)));
+            }
+            let artificial_vars_indecies:Vec<(usize,usize)> = t.basis_indecies.iter()
+                                                                                    .zip(0..t.m)
+                                                                                    .map(|(&col_index, row_index)| if t.c[col_index] == M::new(Ratio::new(-1i64,1), Ratio::new(0i64,1)) { (row_index, col_index) } else { (t.n, col_index) } )
+                                                                                    .filter(|(row_index, col_index)| row_index < &t.n)
+                                                                                    .collect();
+            if t.DEBUG {
+                for (row_index, col_index) in &artificial_vars_indecies {
+                    print!("row: {}, col: {}", row_index, col_index);
+                }
+                println!("");
+            }
+            for (row_index, col_index) in artificial_vars_indecies {
+                if t.DEBUG {
+                    t.print_table();
+                }
+                let entering_index = t.A[row_index].iter()
+                                                   .position(|&el| el != Ratio::from_integer(0i64));
+                if t.DEBUG {
+                    println!("Entering index: {:?}", entering_index);
+                }
+                match entering_index {
+                    Some(index) if index == col_index => {
+                        t.A.remove(row_index);
+                        t.b.remove(row_index);
+                        t.basis_indecies.remove(row_index);
+                        for row in t.A.iter_mut() {
+                            row.remove(col_index);
+                        }
+                        t.n -= 1;
+                        t.m -= 1;
+                        for i in t.basis_indecies.iter_mut() {
+                            if *i > row_index {
+                                *i -= 1;
+                            }
+                        }
+                    },
+                    Some(index) => {
+                        t.entering_var_index = Some(index);
+                        t.leaving_var_index = Some(col_index);
+                        t.pivot();
+                    },
+                    None => {
+                        t.error = true;
+                        t.error_message = String::from("Something went wrong during the transition between phases in the two-phase simplex method.");
+                        return Json(TableauData::new(Tableau::error_tableau(t)));
+                    },
+                }
+            }
+            t.has_artificial_vars = false;
+            t.solved = false;
+            t.calc_reduced_cost();
+            for _ in 0..t.n + 1 {
+                if t.solved || t.error { break; }
+                t.print_table();
+                t.iterate();
+            }
+            if !t.solved && !t.error {
+                t.error = true; 
+                t.error_message = String::from("Stuck in a cycle, terminted solution process.");
+                return Json(TableauData::new(t));
+            } else if t.error {
+                return Json(TableauData::new(Tableau::error_tableau(t)));
+            }
+        }
         t.get_solution();
         Json(TableauData::new(t))
     } else if t.error {
