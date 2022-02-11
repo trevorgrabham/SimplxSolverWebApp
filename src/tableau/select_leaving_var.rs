@@ -1,5 +1,7 @@
 use crate::tableau::Tableau;
 
+use num::rational::Ratio;
+
 impl Tableau {
     pub fn select_leaving_var(&mut self) {
         match self.solve_algorithm.as_str() {

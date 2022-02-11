@@ -1,5 +1,7 @@
 use crate::tableau::Tableau;
 
+use num::rational::Ratio;
+
 impl Tableau {
     pub fn find_basis_indecies(&mut self) {
         let mut a_cols = vec![Vec::with_capacity(self.m);self.n];

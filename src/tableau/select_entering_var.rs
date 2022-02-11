@@ -1,4 +1,7 @@
 use crate::tableau::Tableau;
+use crate::m::M;
+
+use num::rational::Ratio;
 
 impl Tableau {
     pub fn select_entering_var(&mut self) {

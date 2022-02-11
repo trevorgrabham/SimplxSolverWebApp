@@ -14,20 +14,6 @@ mod setup;
 mod solve;
 mod two_phase_second_phase;
 
-pub use add_artificial_var::add_artificial_var;
-pub use calc_reduced_cost::calc_reduced_cost;
-pub use find_basis_indecies::find_basis_indecies;
-pub use get_solution::get_solution;
-pub use iterate::iterate;
-pub use pivot::pivot;
-pub use remove_col::remove_col;
-pub use remove_row::remove_row;
-pub use select_entering_var::select_entering_var;
-pub use select_leaving_var::select_leaving_var;
-pub use setup::setup;
-pub use solve::solve;
-pub use two_phase_second_phase::two_phase_second_phase;
-
 use crate::m::M;
 use crate::tableau_data::TableauData;
 use num::rational::Ratio;
