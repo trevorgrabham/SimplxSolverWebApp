@@ -29,6 +29,12 @@ impl Tableau {
                 let min_ratio = ratios.iter()
                                       .min();
                 let min_index = match min_ratio {
+                    Some(ratio) if ratio == &Ratio::new(i64::MAX, 1) => {
+                        self.error = true;
+                        self.error_message = String::from("Problem is unbounded.");
+                        self.leaving_var_index = None;
+                        return;
+                    },
                     Some(ratio) => {
                         ratios.iter()
                               .position(|el| el == ratio)
@@ -36,7 +42,7 @@ impl Tableau {
                     },
                     None => {
                         self.error = true;
-                        self.error_message = String::from("Problem is unbounded.");
+                        self.error_message = String::from("Unknown error has occurred. It seems like b is empty.");
                         self.leaving_var_index = None;
                         return;
                     }
@@ -45,8 +51,51 @@ impl Tableau {
                 return;
             },
             "dual" => {
-                self.leaving_var_index = None;
-                return;
+                match self.variable_select_type.as_str() {
+                    "standard" => {
+                        let min_value = self.b.iter()
+                                              .min();
+                        match min_value {
+                            Some(value) => {
+                                if value >= &Ratio::new(0i64,1) {
+                                    self.solved = true;
+                                    self.leaving_var_index = None;
+                                    return;
+                                }
+                                let min_index = self.b.iter()
+                                                      .position(|el| el == value)
+                                                      .unwrap();
+                                self.leaving_var_index = Some(min_index);
+                                return;
+                            }, 
+                            None => {
+                                self.error = true;
+                                self.error_message = String::from("Unknown error. It seems like b is empty.");
+                                self.leaving_var_index = None;
+                                return;
+                            }
+                        }
+                    }, 
+                    "bland" => {
+                        match self.b.iter().position(|el| el < &Ratio::new(0i64,1)) {
+                            Some(index) => {
+                                self.leaving_var_index = Some(index);
+                                return;
+                            },
+                            None => {
+                                self.solved = true;
+                                self.leaving_var_index = None;
+                                return;
+                            }
+                        }
+                    },
+                    _ => {
+                        self.error = true;
+                        self.error_message = String::from("Invalid variable select type.");
+                        self.leaving_var_index = None;
+                        return;
+                    }
+                }
             },
             _ => {
                 self.error = true;

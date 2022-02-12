@@ -48,6 +48,17 @@ impl std::iter::Sum<Self> for M {
         }
 }
 
+impl std::ops::Div<&Ratio<i64>> for &M {
+    type Output = M;
+
+    fn div(self, rhs: &Ratio<i64>) -> M {
+        M {
+            M: self.M / rhs,
+            constant: self.constant / rhs,
+        }
+    }
+}
+
 impl std::ops::Div<&Ratio<i64>> for M {
     type Output = Self;
 
