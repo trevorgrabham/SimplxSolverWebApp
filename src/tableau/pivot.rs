@@ -27,15 +27,15 @@ impl Tableau {
                                                                 .zip(leaving_row.iter())
                                                                 .map(|(old_el, leaving_el)| old_el - leaving_el * &self.reduced_cost[entering_index] / &self.A[leaving_index][entering_index])
                                                                 .collect();
-                let new_b: Vec<Ratio<i64>> = self.b.iter()
-                                                   .zip(entering_col.iter())
-                                                   .zip(0..self.m)
-                                                   .map(|((old_el, entering_el), row_index)| if row_index == leaving_index { 
-                                                            old_el / &self.A[leaving_index][entering_index] 
-                                                        } else { 
-                                                            old_el - entering_el * &self.b[leaving_index] / &self.A[leaving_index][entering_index] 
-                                                        })
-                                                   .collect();
+                let new_b: Vec<M> = self.b.iter()
+                                          .zip(entering_col.iter())
+                                          .zip(0..self.m)
+                                          .map(|((old_el, entering_el), row_index)| if row_index == leaving_index { 
+                                                  old_el / &self.A[leaving_index][entering_index] 
+                                              } else { 
+                                                  old_el - entering_el * &self.b[leaving_index] / &self.A[leaving_index][entering_index] 
+                                              })
+                                          .collect();
                 self.obj -= &(&self.b[leaving_index] * &self.reduced_cost[entering_index] / &self.A[leaving_index][entering_index]);
                 self.A = new_a;
                 self.reduced_cost = new_reduced_cost;

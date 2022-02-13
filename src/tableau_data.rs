@@ -9,6 +9,8 @@ pub struct TableauData {
     pub A_denominators: Vec<Vec<i64>>,
     pub b_numerators: Vec<i64>,
     pub b_denominators: Vec<i64>,
+    b_m_numerators: Vec<i64>,
+    b_m_denominators: Vec<i64>,
     pub c_numerators: Vec<i64>,
     pub c_denominators: Vec<i64>,
     pub c_m_numerators: Vec<i64>,
@@ -32,6 +34,8 @@ pub struct TableauData {
     solved: bool,
     solution_numerators: Vec<i64>,
     solution_denominators: Vec<i64>,
+    solution_m_numerators: Vec<i64>,
+    solution_m_denominators: Vec<i64>,
 }
 
 impl TableauData {
@@ -41,23 +45,25 @@ impl TableauData {
                                                                               .map(|el| (*el.numer(), *el.denom()))
                                                                               .unzip())
                                                                 .unzip();
-        let (b_num, b_den): (Vec<i64>, Vec<i64>) = t.b.into_iter()
-                                                      .map(|el| (*el.numer(), *el.denom()))
-                                                      .unzip();
+        let ((b_num, b_den), (b_m_num, b_m_den)): ((Vec<i64>, Vec<i64>), (Vec<i64>, Vec<i64>)) = t.b.into_iter()
+                                                                                                    .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
+                                                                                                    .unzip();
         let ((c_num, c_den), (c_m_num, c_m_den)): ((Vec<i64>, Vec<i64>),(Vec<i64>, Vec<i64>)) = t.c.into_iter()
-                                                      .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
-                                                      .unzip();
+                                                                                                    .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
+                                                                                                    .unzip();
         let ((reduced_cost_num, reduced_cost_den), (reduced_cost_m_num, reduced_cost_m_den)): ((Vec<i64>, Vec<i64>), (Vec<i64>, Vec<i64>)) = t.reduced_cost.into_iter()
                                                                                                                                .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
                                                                                                                                .unzip();
-        let (sol_num, sol_den): (Vec<i64>, Vec<i64>) = t.solution.into_iter()
-                                                                 .map(|el| (*el.numer(), *el.denom()))
-                                                                 .unzip();
+        let ((sol_num, sol_den), (sol_m_num, sol_m_den)): ((Vec<i64>, Vec<i64>), (Vec<i64>, Vec<i64>)) = t.solution.into_iter()
+                                                                                                                   .map(|el| ((*el.constant.numer(), *el.constant.denom()), (*el.M.numer(), *el.M.denom())))
+                                                                                                                   .unzip();
         TableauData {
             A_numerators: a_num,
             A_denominators: a_den,
             b_numerators: b_num,
             b_denominators: b_den,
+            b_m_numerators: b_m_num,
+            b_m_denominators: b_m_den,
             c_numerators: c_num,
             c_denominators: c_den,
             c_m_numerators: c_m_num,
@@ -81,6 +87,8 @@ impl TableauData {
             solved: t.solved,
             solution_numerators: sol_num,
             solution_denominators: sol_den,
+            solution_m_numerators: sol_m_num,
+            solution_m_denominators: sol_m_den,
         }
     }
 }

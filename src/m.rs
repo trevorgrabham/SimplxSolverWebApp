@@ -28,6 +28,29 @@ impl std::ops::Mul<&M> for &Ratio<i64> {
     }
 }
 
+impl std::ops::Mul<&M> for &M {
+    type Output = M;
+
+    fn mul(self, rhs: &M) -> M {
+        if self.M == Ratio::new(0i64,1) {
+            M {
+                M: rhs.M * self.constant,
+                constant: rhs.constant * self.constant,
+            }
+        } else if rhs.M == Ratio::new(0i64,1) {
+            M {
+                M: self.M * rhs.constant,
+                constant: self.constant * rhs.constant,
+            }
+        } else {
+            M {
+                M: Ratio::new(0i64,1),
+                constant: Ratio::new(0i64,1),
+            }
+        }
+    }
+}
+
 impl std::ops::Sub<M> for &M {
     type Output = M;
 
@@ -35,6 +58,17 @@ impl std::ops::Sub<M> for &M {
         M {
             M: self.M - rhs.M,
             constant: self.constant - rhs.constant,
+        }
+    }
+}
+
+impl std::ops::Neg for &M {
+    type Output = M;
+
+    fn neg(self) -> M {
+        M {
+            M: -self.M,
+            constant: -self.constant,
         }
     }
 }
@@ -81,6 +115,13 @@ impl std::ops::SubAssign<&M> for M {
     fn sub_assign(&mut self, rhs: &Self) {
         self.M -= rhs.M;
         self.constant -= rhs.constant;
+    }
+}
+
+impl std::ops::MulAssign<i64> for M {
+    fn mul_assign(&mut self, rhs: i64) {
+        self.M *= rhs;
+        self.constant *= rhs;
     }
 }
 

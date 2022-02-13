@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-mod add_artificial_var;
+mod add_col;
 mod calc_reduced_cost;
 mod find_basis_indecies;
 mod get_solution;
@@ -22,7 +22,7 @@ use num::rational::Ratio;
 pub struct Tableau {
     DEBUG: bool,
     pub A: Vec<Vec<Ratio<i64>>>,
-    pub b: Vec<Ratio<i64>>,
+    pub b: Vec<M>,
     pub c: Vec<M>,
     pub m: usize,
     pub n: usize,
@@ -39,7 +39,7 @@ pub struct Tableau {
     pub error_message: String,
     entering_var_index: Option<usize>,
     leaving_var_index: Option<usize>,
-    pub solution: Vec<Ratio<i64>>,
+    pub solution: Vec<M>,
 }
 
 impl Tableau {
@@ -51,10 +51,10 @@ impl Tableau {
                                                                                      .map(|(num, den)| Ratio::new(num, den))
                                                                                      .collect())
                                                     .collect();
-        let b: Vec<Ratio<i64>> = t.b_numerators.into_iter()
-                                               .zip(t.b_denominators.into_iter())
-                                               .map(|(num, den)| Ratio::new(num, den))
-                                               .collect();
+        let b: Vec<M> = t.b_numerators.into_iter()
+                                      .zip(t.b_denominators.into_iter())
+                                      .map(|(num, den)| M::new(Ratio::new(0i64,1), Ratio::new(num, den)))
+                                      .collect();
         let c: Vec<M> = t.c_m_numerators.into_iter()
                                         .zip(t.c_m_denominators.into_iter())
                                         .zip(t.c_numerators.into_iter()
@@ -81,7 +81,7 @@ impl Tableau {
             error_message: String::from(""),
             entering_var_index: None,
             leaving_var_index: None,
-            solution: vec![Ratio::from_integer(0i64);t.n],
+            solution: vec![M::new(Ratio::new(0i64,1), Ratio::new(0i64,1));t.n],
         }
 
     }

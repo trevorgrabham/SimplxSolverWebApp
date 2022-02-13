@@ -1,4 +1,5 @@
 use crate::tableau::Tableau;
+use crate::m::M;
 
 use num::rational::Ratio;
 
@@ -21,15 +22,15 @@ impl Tableau {
                     },
                     Some(index) => index
                 };
-                let ratios: Vec<Ratio<i64>> = self.A.iter()
-                                                    .map(|row| &row[entering_index])
-                                                    .zip(self.b.iter())
-                                                    .map(|(a, b)| if a > &Ratio::from_integer(0i64) { b/a } else { Ratio::new(i64::MAX, 1) })
-                                                    .collect();
+                let ratios: Vec<M> = self.A.iter()
+                                           .map(|row| &row[entering_index])
+                                           .zip(self.b.iter())
+                                           .map(|(a, b)| if a > &Ratio::from_integer(0i64) { b/a } else { M::new(Ratio::new(i64::MAX,1), Ratio::new(i64::MAX, 1)) })
+                                           .collect();
                 let min_ratio = ratios.iter()
                                       .min();
                 let min_index = match min_ratio {
-                    Some(ratio) if ratio == &Ratio::new(i64::MAX, 1) => {
+                    Some(ratio) if ratio == &M::new(Ratio::new(i64::MAX,1), Ratio::new(i64::MAX, 1)) => {
                         self.error = true;
                         self.error_message = String::from("Problem is unbounded.");
                         self.leaving_var_index = None;
@@ -57,7 +58,7 @@ impl Tableau {
                                               .min();
                         match min_value {
                             Some(value) => {
-                                if value >= &Ratio::new(0i64,1) {
+                                if value >= &M::new(Ratio::new(0i64,1), Ratio::new(0i64,1)) {
                                     self.solved = true;
                                     self.leaving_var_index = None;
                                     return;
@@ -77,7 +78,7 @@ impl Tableau {
                         }
                     }, 
                     "bland" => {
-                        match self.b.iter().position(|el| el < &Ratio::new(0i64,1)) {
+                        match self.b.iter().position(|el| el < &M::new(Ratio::new(0i64,1), Ratio::new(0i64,1))) {
                             Some(index) => {
                                 self.leaving_var_index = Some(index);
                                 return;

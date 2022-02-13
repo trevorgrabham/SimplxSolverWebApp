@@ -22,6 +22,7 @@ impl Tableau {
             }
             print!("]\n");
         }
+        self.reduced_cost.drain(..);
         for col in 0..self.n {
             self.reduced_cost.push(M::new(Ratio::new(0i64, 1), Ratio::new(0i64, 1)));
             for row in 0..self.m {
